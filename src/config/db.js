@@ -1,20 +1,24 @@
 import { Pool } from "pg";
 
 const pool = new Pool({
-  host: process.env.DB_HOST,
-  port: process.env.DB_PORT,
-  user: String(process.env.DB_USER),
-  password: String(process.env.DB_PASSWORD),
-  database: process.env.DB_NAME,
-});
+  host: "localhost",
+  port: 5432,
+  user: "postgres",
+  password: "1234",
+  database: "store_management_system"
+})
 
-const connectToDB=async()=>{
+const connectToDB = async () => {
+  console.log(process.env.DB_USER)
   console.log(process.env.DB_PASSWORD)
-    await pool.connect()
-    .then(console.log("Database Connected successfully"))
-    .catch(error=>{
-      console.log("Db Connection Failed",error)
-    })
-}
-export {connectToDB, pool}
 
+  console.log("Starting......")
+  try {
+    await pool.connect()
+    console.log("Database Connected successfully")
+  }
+  catch (error) {
+    console.log("Db Connection Failed", error)
+  }
+}
+export { connectToDB, pool };

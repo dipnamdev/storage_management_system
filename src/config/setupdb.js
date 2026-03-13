@@ -1,11 +1,11 @@
-import logger from './logger' ;
-import pool from "./db.js";
+// import logger from './logger' ;
+import {pool} from "./db.js";
 
 async function setupDatabase() {
   const client = await pool.connect();
 
   try {
-    logger.info("🚀 Setting up database...");
+    console.log("🚀 Setting up database...");
 
     await client.query("BEGIN");
 
@@ -230,7 +230,7 @@ async function setupDatabase() {
 
     await client.query("COMMIT");
 
-    logger.info("✅ Database setup completed");
+    console.log("✅ Database setup completed");
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("❌ Setup failed:", err);

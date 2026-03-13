@@ -3,6 +3,14 @@ dotenv.config();
 import app from "./src/app.js";
 import { connectToDB } from "./src/config/db.js";
 
+await connectToDB()
+  .then(() => {
+    console.log("Database Connected successfully")
+  })
+  .catch((error) => {
+    console.log("Db Connection Failed", error)
+  })
+  ;
 
 app.get('/', (req, res) => {
   res.send('Hello World!')
@@ -12,4 +20,3 @@ app.listen(process.env.PORT, () => {
   console.log(`Server listening on port ${process.env.PORT}`)
 })
 
-await connectToDB();
