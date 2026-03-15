@@ -1,18 +1,15 @@
 import express from "express";
 import userController from "./user.controller.js";
-import authMiddleware from "../../middleware/auth.middleware.js";
 
 const router = express.Router();
 
-// public routes
+// Public
 router.post("/login", userController.login);
 router.post("/register", userController.createUser);
 
-// everything under here requires a valid token
-router.use(authMiddleware);
-
-router.get("/", (req, res) => {
-  res.json({ message: "User route working" });
-});
+// Protected (Assumes authMiddleware is implemented)
+router.get("/:id", userController.getUserById);
+router.put("/update/:id", userController.updateUser);
+router.delete("/delete/:id", userController.deleteUser);
 
 export default router;

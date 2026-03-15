@@ -1,94 +1,66 @@
 import userService from "./user.service.js";
-
 import bcrypt from "bcrypt";
 
 const createUser = async (req, res) => {
     try {
-        // hash the plain‑text password before saving
         const { password, ...rest } = req.body;
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
-        // pass the hashed password to the service
-        const result = await userService.createUser(
-            { ...rest, hashed_password: hashedPassword },
-            req.user.id
-        );
+        // created_by usually comes from req.user.id (from your auth middleware)
+        const creatorId = req.user ? req.user.id : null; 
 
-        res.status(201).json({
-            message: "User created successfully",
-            userId: result.insertId,
+        const result = await userService.registerUser({ 
+            ...rest, 
+            hashed_password: hashedPassword,
+            created_by: creatorId 
         });
+
+        res.status(201).json({ message: "User created", userId: result.insertId });
     } catch (error) {
-        res.status(500).json({
-            message: "Error creating user",
-            error: error.message,
-        });
+        res.status(400).json({ error: error.message });
     }
 };
 
-const getUserById = async (req, res)=>{
-    try{
-        const result = await userService.getUserById(req.params.id);
-        
-        res.status(200).json({
-            message:"User retrieved successfully",
-            user:result
-        })
-        
+const getUserById = async (req, res) => {
+    try {
+        const user = await userService.getUserById(req.params.id);
+        if (!user) return res.status(404).json({ message: "User not found" });
+        res.status(200).json(user);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
-    catch(error){
-        res.status(500).json({
-            message:"Error retrieving User",
-            error:error.message
-        })
-    }
-}
+};
 
-const updateUser = async (req,res) => {
-    try{
-        const result = await userService.updateUser(req.params.id, req.body);
-        res.status(200).json({
-            message: "User Details Updated Successfully",
-            user:result
-        })
+const updateUser = async (req, res) => {
+    try {
+        await userService.updateUser(req.params.id, req.body);
+        res.status(200).json({ message: "User updated successfully" });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
-    catch(error){
-        res.status(500).json({
-            message: "Error updating user details",
-            error: error.message
-        })
-    }
-}
+};
 
-// ----------------------------------------------------------------
-// authentication helpers
+const deleteUser = async (req, res) => {
+    try {
+        await userService.deleteUser(req.params.id);
+        res.status(200).json({ message: "User deleted successfully" });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
 
 const login = async (req, res) => {
     try {
-        const { email, password } = req.body;
-        const user = await userService.getUserByEmail(email);
-        if (!user) {
-            return res.status(400).json({ message: "Wrong Username/Password" });
+        const user = await userService.getUserByEmail(req.body.email);
+        if (!user || !(await bcrypt.compare(req.body.password, user.hashed_password))) {
+            return res.status(401).json({ message: "Invalid credentials" });
         }
-
-        const passwordMatches = await bcrypt.compare(password, user.hashed_password || user.hased_password);
-        if (!passwordMatches) {
-            return res.status(400).json({ message: "Wrong Username/Password" });
-        }
-
-        // generate JWT or whatever you use for sessions
-        const token = userService.generateToken(user);
-        res.status(200).json({ token });
+        // Token logic would go here
+        res.status(200).json({ message: "Login successful", user: { id: user.id, role: user.role } });
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        res.status(500).json({ error: error.message });
     }
 };
 
-// alias createUser so routes can call it as `register`
-
-
-export { createUser, getUserById, login };
-
-// default export for existing code that was expecting a default
-export default { createUser, getUserById, login };
+export default { createUser, getUserById, updateUser, deleteUser, login };

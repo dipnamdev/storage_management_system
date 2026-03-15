@@ -15,11 +15,12 @@ async function setupDatabase() {
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
+        first_name VARCHAR(255) NOT NULL,
+        last_name VARCHAR(255) NOT NULL,
         email VARCHAR(255) UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
         role VARCHAR(30) NOT NULL CHECK (role IN ('SUPER_ADMIN','WAREHOUSE_MANAGER')),
-        warehouse_id INTEGER,
+        warehouse_number VARCHAR(100) UNIQUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
