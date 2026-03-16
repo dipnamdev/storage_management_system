@@ -2,47 +2,47 @@ import { pool } from "../../config/db.js";
 
 const registerUser = async (data) => {
     // Role validation
-    const validRoles = ['admin', 'warehouse_manager'];
+    const validRoles = ['SUPER_ADMIN', 'WAREHOUSE_MANAGER'];
     if (!validRoles.includes(data.role)) {
-        throw new Error("Invalid role. Must be 'admin' or 'warehouse_manager'");
+        throw new Error("Invalid role. Must be 'SUPER_ADMIN' or 'WAREHOUSE_MANAGER'");
     }
 
     const query = `
-    INSERT INTO users (full_name, email_id, phone_number, hashed_password, role, created_by) 
-    VALUES (?, ?, ?, ?, ?, ?)`;
+    INSERT INTO users (first_name, last_name, email_id, password_hash, role) 
+    VALUES ($1, $2, $3, $4, $5) RETURNING id`;
 
-    const values = [data.full_name, data.email_id, data.phone_number, data.hashed_password, data.role, data.created_by];
-    const [result] = await pool.query(query, values);
-    return result;
+    const values = [data.first_name, data.last_name, data.email_id, data.password_hash, data.role];
+    const result = await pool.query(query, values);
+    return result.rows[0];
 };
 
-const getUserByEmail = async (email) => {
-    const [result] = await pool.query("SELECT * FROM user WHERE email_id = ?", [email]);
-    return result[0];
+const getUserByEmail = async (email_id) => {
+    const result = await pool.query("SELECT * FROM users WHERE email_id = $1", [email_id]);
+    return result.rows[0];
 };
 
 const getUserById = async (id) => {
-    const [result] = await pool.query("SELECT id, full_name, email_id, phone_number, role FROM user WHERE id = ?", [id]);
-    return result[0];
+    const result = await pool.query("SELECT id, first_name, last_name, email_id, role, warehouse_number FROM users WHERE id = $1", [id]);
+    return result.rows[0];
 };
 
 const updateUser = async (id, data) => {
     // Prevent role spoofing if role is passed
-    if (data.role && !['admin', 'warehouse_manager'].includes(data.role)) {
+    if (data.role && !['SUPER_ADMIN', 'WAREHOUSE_MANAGER'].includes(data.role)) {
         throw new Error("Invalid role selection");
     }
 
     const query = `
-    UPDATE user SET full_name = ?, phone_number = ?, role = ?
-    WHERE id = ?`;
+    UPDATE users SET first_name = $1, last_name = $2, role = $3
+    WHERE id = $4 RETURNING *`;
     
-    const [result] = await pool.query(query, [data.full_name, data.phone_number, data.role, id]);
-    return result;
+    const result = await pool.query(query, [data.first_name, data.last_name, data.role, id]);
+    return result.rows[0];
 };
 
 const deleteUser = async (id) => {
-    const [result] = await pool.query("DELETE FROM user WHERE id = ?", [id]);
-    return result;
+    const result = await pool.query("DELETE FROM users WHERE id = $1 RETURNING id", [id]);
+    return result.rows[0];
 };
 
 const userService = { registerUser, getUserByEmail, getUserById, updateUser, deleteUser };

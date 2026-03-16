@@ -5,7 +5,7 @@ const pool = new Pool({
   port: 5432,
   user: "postgres",
   password: "1234",
-  database: "store_management_system"
+  database: "storage_management_system"
 })
 
 const connectToDB = async () => {

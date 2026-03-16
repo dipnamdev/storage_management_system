@@ -1,5 +1,6 @@
 // import logger from './logger' ;
 import {pool} from "./db.js";
+import bcrypt from "bcrypt";
 
 async function setupDatabase() {
   const client = await pool.connect();
@@ -7,7 +8,7 @@ async function setupDatabase() {
   try {
     console.log("🚀 Setting up database...");
 
-    await client.query("BEGIN");
+    // await client.query("BEGIN");
 
     // =========================
     // USERS
@@ -17,7 +18,7 @@ async function setupDatabase() {
         id SERIAL PRIMARY KEY,
         first_name VARCHAR(255) NOT NULL,
         last_name VARCHAR(255) NOT NULL,
-        email VARCHAR(255) UNIQUE NOT NULL,
+        email_id VARCHAR(255) UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
         role VARCHAR(30) NOT NULL CHECK (role IN ('SUPER_ADMIN','WAREHOUSE_MANAGER')),
         warehouse_number VARCHAR(100) UNIQUE,
@@ -33,11 +34,15 @@ async function setupDatabase() {
       CREATE TABLE IF NOT EXISTS warehouses (
         id SERIAL PRIMARY KEY,
         district_name VARCHAR(255) NOT NULL,
-        branch_name VARCHAR(255),
+        branch_name VARCHAR(255) NOT NULL,
         warehouse_name VARCHAR(255) NOT NULL,
         warehouse_number VARCHAR(100) UNIQUE NOT NULL,
+        warehouse_owner VARCHAR(255),
         gst_number VARCHAR(100),
         pan_number VARCHAR(100),
+        pancard_holder VARCHAR(255),
+        sr_no VARCHAR(100),
+        deposit_name VARCHAR(255),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
@@ -229,16 +234,64 @@ async function setupDatabase() {
       );
     `);
 
-    await client.query("COMMIT");
+    // =========================
+    // DUMMY DATA SEEDING
+    // =========================
+    console.log("🌱 Seeding default user and dummy data...");
+
+    // 1. Default Admin User
+    const salt = await bcrypt.genSalt(10);
+    const adminPasswordHash = await bcrypt.hash("admin123", salt);
+
+    await client.query(`
+      INSERT INTO users (first_name, last_name, email_id, password_hash, role)
+      VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (email_id) DO NOTHING;
+    `, ["Super", "Admin", "admin@storage.com", adminPasswordHash, "SUPER_ADMIN"]);
+
+    // 2. Dummy Warehouse
+    await client.query(`
+      INSERT INTO warehouses (district_name, branch_name, warehouse_name, warehouse_number, gst_number, pan_number)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      ON CONFLICT (warehouse_number) DO NOTHING;
+    `, ["New Delhi", "Central Branch", "Central Storage Facility", "WH-001", "07AAAAA0000A1Z5", "AAAAA0000A"]);
+
+    // 3. Dummy Warehouse Manager User
+    const managerPasswordHash = await bcrypt.hash("manager123", salt);
+    await client.query(`
+      INSERT INTO users (first_name, last_name, email_id, password_hash, role, warehouse_number)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      ON CONFLICT (email_id) DO NOTHING;
+    `, ["Warehouse", "Manager1", "manager1@storage.com", managerPasswordHash, "WAREHOUSE_MANAGER", "WH-001"]);
+
+    // 4. Dummy Commodity & Price
+    await client.query(`
+      INSERT INTO commodities (name, is_active)
+      VALUES ($1, $2)
+      ON CONFLICT (name) DO NOTHING;
+    `, ["Wheat", true]);
+
+    await client.query(`
+      INSERT INTO commodity_prices (commodity_id, financial_year, price_per_unit)
+      SELECT id, $1, $2 FROM commodities WHERE name = $3
+      ON CONFLICT (commodity_id, financial_year) DO NOTHING;
+    `, ["2023-24", 25.50, "Wheat"]);
+
+
+    // await client.query("COMMIT");
 
     console.log("✅ Database setup completed");
   } catch (err) {
     await client.query("ROLLBACK");
-    console.error("❌ Setup failed:", err);
+    console.error("RAW ERROR =>", err.message, "| Code:", err.code, "| Detail:", err.detail);
+    throw err;
   } finally {
     client.release();
-    process.exit();
   }
 }
 
-setupDatabase();
+setupDatabase()
+  .then(() => process.exit(0))
+  .catch(err => {
+    process.exit(1);
+  });

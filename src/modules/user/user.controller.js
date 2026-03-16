@@ -1,5 +1,6 @@
 import userService from "./user.service.js";
 import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
 
 const createUser = async (req, res) => {
     try {
@@ -7,16 +8,12 @@ const createUser = async (req, res) => {
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
-        // created_by usually comes from req.user.id (from your auth middleware)
-        const creatorId = req.user ? req.user.id : null; 
-
         const result = await userService.registerUser({ 
             ...rest, 
-            hashed_password: hashedPassword,
-            created_by: creatorId 
+            password_hash: hashedPassword
         });
 
-        res.status(201).json({ message: "User created", userId: result.insertId });
+        res.status(201).json({ message: "User created", userId: result.id });
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
@@ -52,12 +49,21 @@ const deleteUser = async (req, res) => {
 
 const login = async (req, res) => {
     try {
-        const user = await userService.getUserByEmail(req.body.email);
-        if (!user || !(await bcrypt.compare(req.body.password, user.hashed_password))) {
+        const user = await userService.getUserByEmail(req.body.email_id);
+        if (!user || !(await bcrypt.compare(req.body.password, user.password_hash))) {
             return res.status(401).json({ message: "Invalid credentials" });
         }
-        // Token logic would go here
-        res.status(200).json({ message: "Login successful", user: { id: user.id, role: user.role } });
+        const token = jwt.sign(
+            { id: user.id, role: user.role, email_id: user.email_id }, 
+            process.env.JWT_SECRET || "fallback_secret", 
+            { expiresIn: "1d" }
+        );
+
+        res.status(200).json({ 
+            message: "Login successful", 
+            token,
+            user: { id: user.id, role: user.role } 
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
