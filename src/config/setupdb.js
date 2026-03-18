@@ -3,16 +3,24 @@ import {pool} from "./db.js";
 import bcrypt from "bcrypt";
 
 async function setupDatabase() {
-  const client = await pool.connect();
+  let client;
+  try {
+    client = await pool.connect();
+    console.log("✅ Database connected successfully");
+  } catch (err) {
+    console.error("❌ Database connection failed:", err.message);
+    return;
+  }
 
   try {
-    console.log("🚀 Setting up database...");
+    console.log("🚀 Setting up tables...");
 
     // await client.query("BEGIN");
 
     // =========================
     // USERS
     // =========================
+    console.log("Creating Users table...");
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -21,7 +29,8 @@ async function setupDatabase() {
         email_id VARCHAR(255) UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
         role VARCHAR(30) NOT NULL CHECK (role IN ('SUPER_ADMIN','WAREHOUSE_MANAGER')),
-        warehouse_number VARCHAR(100) UNIQUE,
+        warehouse_number VARCHAR(100),
+        warehouse_id INTEGER,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
@@ -30,6 +39,11 @@ async function setupDatabase() {
     // =========================
     // WAREHOUSES
     // =========================
+    console.log("Creating Warehouses table and fixing columns...");
+    // Ensure users table has warehouse_id
+    await client.query(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS warehouse_id INTEGER;
+    `).catch((err)=> console.log("Alter Users error:", err.message));
     await client.query(`
       CREATE TABLE IF NOT EXISTS warehouses (
         id SERIAL PRIMARY KEY,
@@ -51,15 +65,18 @@ async function setupDatabase() {
     // add warehouse FK to users
     await client.query(`
       ALTER TABLE users
+      DROP CONSTRAINT IF EXISTS fk_users_warehouse;
+      ALTER TABLE users
       ADD CONSTRAINT fk_users_warehouse
       FOREIGN KEY (warehouse_id)
       REFERENCES warehouses(id)
       ON DELETE SET NULL;
-    `).catch(()=>{});
+    `).catch((err)=> console.log("FK error:", err.message));
 
     // =========================
     // COMMODITIES
     // =========================
+    console.log("Creating Commodities table...");
     await client.query(`
       CREATE TABLE IF NOT EXISTS commodities (
         id SERIAL PRIMARY KEY,
@@ -95,61 +112,77 @@ async function setupDatabase() {
       );
     `);
 
+
     // =========================
-    // CLAIMS (HEADER)
+    // WAREHOUSE BILLING
     // =========================
+
     await client.query(`
-      CREATE TABLE IF NOT EXISTS claims (
-        id SERIAL PRIMARY KEY,
-        warehouse_id INTEGER NOT NULL,
-        created_by INTEGER NOT NULL,
-        current_version_id INTEGER,
-        status VARCHAR(30) NOT NULL CHECK (
-          status IN ('PENDING_APPROVAL','APPROVED','REJECTED','PAID')
-        ),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      CREATE TABLE IF NOT EXISTS warehouse_billing (
+      id SERIAL PRIMARY KEY,
 
-        CONSTRAINT fk_claim_warehouse
-        FOREIGN KEY (warehouse_id)
-        REFERENCES warehouses(id),
+      warehouse_id INTEGER NOT NULL,
+      created_by INTEGER NOT NULL,
 
-        CONSTRAINT fk_claim_user
-        FOREIGN KEY (created_by)
-        REFERENCES users(id)
-      );
+      inbound_time TIMESTAMP,
+      outbound_time TIMESTAMP,
+
+      status VARCHAR(30) NOT NULL CHECK (
+        status IN ('PENDING_APPROVAL','APPROVED','REJECTED','PAID')
+      ) DEFAULT 'PENDING_APPROVAL',
+
+      current_version_id INTEGER,
+
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+      CONSTRAINT fk_billing_warehouse
+      FOREIGN KEY (warehouse_id)
+      REFERENCES warehouses(id),
+
+      CONSTRAINT fk_billing_user
+      FOREIGN KEY (created_by)
+      REFERENCES users(id)
+    );
     `);
 
     // =========================
-    // CLAIM VERSIONS
+    // WAREHOUSE BILLING VERSIONS
     // =========================
     await client.query(`
-      CREATE TABLE IF NOT EXISTS claim_versions (
+        CREATE TABLE IF NOT EXISTS warehouse_billing_versions (
         id SERIAL PRIMARY KEY,
-        claim_id INTEGER NOT NULL,
+
+        billing_id INTEGER NOT NULL,
         version_number INTEGER NOT NULL,
 
         depositor_name VARCHAR(255),
         depositor_gst VARCHAR(50),
 
         commodity_id INTEGER NOT NULL,
+
         bill_no VARCHAR(100),
+
         claim_month INTEGER,
         financial_year VARCHAR(7),
 
         taxable_amount DECIMAL(12,2),
-        tax_amount DECIMAL(12,2),
+
+        sgst DECIMAL(12,2),
+        cgst DECIMAL(12,2),
+
         total_amount DECIMAL(12,2),
 
-        payment_mode VARCHAR(20),
-        instrument_no VARCHAR(100),
+        version_status VARCHAR(30) NOT NULL CHECK (
+          version_status IN ('PENDING_APPROVAL','APPROVED','REJECTED')
+        ) DEFAULT 'PENDING_APPROVAL',
 
         created_by INTEGER,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-        CONSTRAINT fk_version_claim
-        FOREIGN KEY (claim_id)
-        REFERENCES claims(id)
+        CONSTRAINT fk_version_billing
+        FOREIGN KEY (billing_id)
+        REFERENCES warehouse_billing(id)
         ON DELETE CASCADE,
 
         CONSTRAINT fk_version_commodity
@@ -160,79 +193,213 @@ async function setupDatabase() {
         FOREIGN KEY (created_by)
         REFERENCES users(id),
 
-        UNIQUE(claim_id, version_number)
+        UNIQUE(billing_id, version_number)
       );
     `);
+    
+    // =========================
+    // BILLING PAYMENTS
+    // =========================
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS billing_payments (
+      id SERIAL PRIMARY KEY,
+
+      billing_id INTEGER NOT NULL,
+
+      amount_passed DECIMAL(12,2) NOT NULL,
+
+      payment_mode VARCHAR(20),
+
+      instrument_no VARCHAR(100),
+
+      payment_date DATE,
+
+      advice_no VARCHAR(100),
+      advice_date DATE,
+
+      remarks TEXT,
+
+      created_by INTEGER,
+
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+      CONSTRAINT fk_payment_billing
+      FOREIGN KEY (billing_id)
+      REFERENCES warehouse_billing(id)
+      ON DELETE CASCADE,
+
+      CONSTRAINT fk_payment_user
+      FOREIGN KEY (created_by)
+      REFERENCES users(id)
+    );
+    `);
+
+    // =========================
+    // NOTIFICATIONS
+    // =========================
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS notifications (
+      id SERIAL PRIMARY KEY,
+
+      user_id INTEGER NOT NULL,
+
+      title VARCHAR(255),
+
+      message TEXT,
+
+      related_entity VARCHAR(50),
+
+      related_entity_id INTEGER,
+
+      is_read BOOLEAN DEFAULT FALSE,
+
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+      CONSTRAINT fk_notification_user
+      FOREIGN KEY (user_id)
+      REFERENCES users(id)
+      ON DELETE CASCADE
+    );
+    `);
+
+    // =========================
+    // CLAIMS (HEADER)
+    // =========================
+    // await client.query(`
+    //   CREATE TABLE IF NOT EXISTS claims (
+    //     id SERIAL PRIMARY KEY,
+    //     warehouse_id INTEGER NOT NULL,
+    //     created_by INTEGER NOT NULL,
+    //     current_version_id INTEGER,
+    //     status VARCHAR(30) NOT NULL CHECK (
+    //       status IN ('PENDING_APPROVAL','APPROVED','REJECTED','PAID')
+    //     ),
+    //     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    //     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    //     CONSTRAINT fk_claim_warehouse
+    //     FOREIGN KEY (warehouse_id)
+    //     REFERENCES warehouses(id),
+
+    //     CONSTRAINT fk_claim_user
+    //     FOREIGN KEY (created_by)
+    //     REFERENCES users(id)
+    //   );
+    // `);
+
+    // // =========================
+    // // CLAIM VERSIONS
+    // // =========================
+    // await client.query(`
+    //   CREATE TABLE IF NOT EXISTS claim_versions (
+    //     id SERIAL PRIMARY KEY,
+    //     claim_id INTEGER NOT NULL,
+    //     version_number INTEGER NOT NULL,
+
+    //     depositor_name VARCHAR(255),
+    //     depositor_gst VARCHAR(50),
+
+    //     commodity_id INTEGER NOT NULL,
+    //     bill_no VARCHAR(100),
+    //     claim_month INTEGER,
+    //     financial_year VARCHAR(7),
+
+    //     taxable_amount DECIMAL(12,2),
+    //     tax_amount DECIMAL(12,2),
+    //     total_amount DECIMAL(12,2),
+
+    //     payment_mode VARCHAR(20),
+    //     instrument_no VARCHAR(100),
+
+    //     created_by INTEGER,
+    //     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    //     CONSTRAINT fk_version_claim
+    //     FOREIGN KEY (claim_id)
+    //     REFERENCES claims(id)
+    //     ON DELETE CASCADE,
+
+    //     CONSTRAINT fk_version_commodity
+    //     FOREIGN KEY (commodity_id)
+    //     REFERENCES commodities(id),
+
+    //     CONSTRAINT fk_version_user
+    //     FOREIGN KEY (created_by)
+    //     REFERENCES users(id),
+
+    //     UNIQUE(claim_id, version_number)
+    //   );
+    // `);
 
     // add pointer to current version
-    await client.query(`
-      ALTER TABLE claims
-      ADD CONSTRAINT fk_claim_current_version
-      FOREIGN KEY (current_version_id)
-      REFERENCES claim_versions(id)
-      ON DELETE SET NULL;
-    `).catch(()=>{});
+    // await client.query(`
+    //   ALTER TABLE claims
+    //   ADD CONSTRAINT fk_claim_current_version
+    //   FOREIGN KEY (current_version_id)
+    //   REFERENCES claim_versions(id)
+    //   ON DELETE SET NULL;
+    // `).catch(()=>{});
 
-    // =========================
-    // CLAIM APPROVALS
-    // =========================
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS claim_approvals (
-        id SERIAL PRIMARY KEY,
-        claim_id INTEGER NOT NULL,
-        version_id INTEGER NOT NULL,
+    // // =========================
+    // // CLAIM APPROVALS
+    // // =========================
+    // await client.query(`
+    //   CREATE TABLE IF NOT EXISTS claim_approvals (
+    //     id SERIAL PRIMARY KEY,
+    //     claim_id INTEGER NOT NULL,
+    //     version_id INTEGER NOT NULL,
 
-        action VARCHAR(20) NOT NULL CHECK (action IN ('APPROVED','REJECTED')),
-        remarks TEXT,
+    //     action VARCHAR(20) NOT NULL CHECK (action IN ('APPROVED','REJECTED')),
+    //     remarks TEXT,
 
-        action_by INTEGER NOT NULL,
-        action_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    //     action_by INTEGER NOT NULL,
+    //     action_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-        CONSTRAINT fk_approval_claim
-        FOREIGN KEY (claim_id)
-        REFERENCES claims(id)
-        ON DELETE CASCADE,
+    //     CONSTRAINT fk_approval_claim
+    //     FOREIGN KEY (claim_id)
+    //     REFERENCES claims(id)
+    //     ON DELETE CASCADE,
 
-        CONSTRAINT fk_approval_version
-        FOREIGN KEY (version_id)
-        REFERENCES claim_versions(id)
-        ON DELETE CASCADE,
+    //     CONSTRAINT fk_approval_version
+    //     FOREIGN KEY (version_id)
+    //     REFERENCES claim_versions(id)
+    //     ON DELETE CASCADE,
 
-        CONSTRAINT fk_approval_user
-        FOREIGN KEY (action_by)
-        REFERENCES users(id)
-      );
-    `);
+    //     CONSTRAINT fk_approval_user
+    //     FOREIGN KEY (action_by)
+    //     REFERENCES users(id)
+    //   );
+    // `);
 
-    // =========================
-    // CLAIM PAYMENTS
-    // =========================
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS claim_payments (
-        id SERIAL PRIMARY KEY,
-        claim_id INTEGER UNIQUE NOT NULL,
+    // // =========================
+    // // CLAIM PAYMENTS
+    // // =========================
+    // await client.query(`
+    //   CREATE TABLE IF NOT EXISTS claim_payments (
+    //     id SERIAL PRIMARY KEY,
+    //     claim_id INTEGER UNIQUE NOT NULL,
 
-        approved_amount DECIMAL(12,2) NOT NULL,
+    //     approved_amount DECIMAL(12,2) NOT NULL,
 
-        advice_no VARCHAR(100),
-        advice_date DATE,
-        payment_date DATE,
+    //     advice_no VARCHAR(100),
+    //     advice_date DATE,
+    //     payment_date DATE,
 
-        remarks TEXT,
+    //     remarks TEXT,
 
-        created_by INTEGER,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    //     created_by INTEGER,
+    //     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-        CONSTRAINT fk_payment_claim
-        FOREIGN KEY (claim_id)
-        REFERENCES claims(id)
-        ON DELETE CASCADE,
+    //     CONSTRAINT fk_payment_claim
+    //     FOREIGN KEY (claim_id)
+    //     REFERENCES claims(id)
+    //     ON DELETE CASCADE,
 
-        CONSTRAINT fk_payment_user
-        FOREIGN KEY (created_by)
-        REFERENCES users(id)
-      );
-    `);
+    //     CONSTRAINT fk_payment_user
+    //     FOREIGN KEY (created_by)
+    //     REFERENCES users(id)
+    //   );
+    // `);
 
     // =========================
     // DUMMY DATA SEEDING
@@ -259,10 +426,10 @@ async function setupDatabase() {
     // 3. Dummy Warehouse Manager User
     const managerPasswordHash = await bcrypt.hash("manager123", salt);
     await client.query(`
-      INSERT INTO users (first_name, last_name, email_id, password_hash, role, warehouse_number)
-      VALUES ($1, $2, $3, $4, $5, $6)
+      INSERT INTO users (first_name, last_name, email_id, password_hash, role, warehouse_number, warehouse_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       ON CONFLICT (email_id) DO NOTHING;
-    `, ["Warehouse", "Manager1", "manager1@storage.com", managerPasswordHash, "WAREHOUSE_MANAGER", "WH-001"]);
+    `, ["Warehouse", "Manager1", "manager1@storage.com", managerPasswordHash, "WAREHOUSE_MANAGER", "WH-001", 1]);
 
     // 4. Dummy Commodity & Price
     await client.query(`
@@ -282,11 +449,12 @@ async function setupDatabase() {
 
     console.log("✅ Database setup completed");
   } catch (err) {
-    await client.query("ROLLBACK");
-    console.error("RAW ERROR =>", err.message, "| Code:", err.code, "| Detail:", err.detail);
+    // await client.query("ROLLBACK");
+    console.error("❌ SETUP ERROR =>", err.message);
+    if (err.detail) console.error("Detail:", err.detail);
     throw err;
   } finally {
-    client.release();
+    if (client) client.release();
   }
 }
 

@@ -12,12 +12,7 @@ router.post(
   commodityController.createCommodity
 );
 
-router.get(
-  "/",
-  verifyToken,
-  roleMiddleware("SUPER_ADMIN"),
-  commodityController.getAllCommodity
-);
+router.get("/",commodityController.getAllCommodity);
 
 router.put(
   "/:id",

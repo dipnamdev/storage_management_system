@@ -34,16 +34,17 @@ const createWarehouseWithManager = async (warehouseData, managerData) => {
         const hashedPassword = await bcrypt.hash(managerData.password, salt);
 
         const managerQuery = `
-            INSERT INTO users (first_name, last_name, email_id, password_hash, role, warehouse_number)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING id, first_name, last_name, email_id, role, warehouse_number  `;
+            INSERT INTO users (first_name, last_name, email_id, password_hash, role, warehouse_number, warehouse_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            RETURNING id, first_name, last_name, email_id, role, warehouse_number, warehouse_id  `;
         const managerValues = [
             managerData.first_name,
             managerData.last_name,
             managerData.email_id || managerData.email,
             hashedPassword,
             'WAREHOUSE_MANAGER',
-            newWarehouse.warehouse_number
+            newWarehouse.warehouse_number,
+            newWarehouse.id
         ];
 
         const managerResult = await client.query(managerQuery, managerValues);

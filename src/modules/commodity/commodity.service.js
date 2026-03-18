@@ -3,9 +3,10 @@ import { pool } from "../../config/db.js";
 const getAllCommodity = async () => {
   const query = `
     SELECT 
-        c.id,
+        c.id as commodity_id,
         c.name,
         c.is_active,
+        cp.id as price_id,
         cp.financial_year,
         cp.price_per_unit,
         cp.updated_at
@@ -67,15 +68,47 @@ const updateCommodity = async (
   }
 };
 
-const deleteCommodity = async (commodityId) => {
+const deleteCommodity = async (priceId) => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
 
-  // Soft delete
-  await pool.query(
-    `UPDATE commodities
-     SET is_active = false
-     WHERE id = $1`,
-    [commodityId]
-  );
+    // 1. Get commodity_id before deleting the price
+    const priceRes = await client.query(
+      `SELECT commodity_id FROM commodity_prices WHERE id = $1`,
+      [priceId]
+    );
+
+    if (priceRes.rowCount === 0) {
+      throw new Error("Price entry not found");
+    }
+
+    const commodityId = priceRes.rows[0].commodity_id;
+
+    // 2. Delete the specific price entry
+    await client.query(`DELETE FROM commodity_prices WHERE id = $1`, [priceId]);
+
+    // 3. Check if any price entries remain for this commodity
+    const remainRes = await client.query(
+      `SELECT id FROM commodity_prices WHERE commodity_id = $1 LIMIT 1`,
+      [commodityId]
+    );
+
+    // 4. If no prices remain, mark the commodity as inactive
+    if (remainRes.rowCount === 0) {
+      await client.query(
+        `UPDATE commodities SET is_active = false WHERE id = $1`,
+        [commodityId]
+      );
+    }
+
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 };
 
 

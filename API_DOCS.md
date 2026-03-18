@@ -122,7 +122,7 @@ Creates a new warehouse and securely associates a new Warehouse Manager to it in
   ```
 - **Response**: `201 Created` with inserted data.
 
-### 3. Update Warehouse (Protected, Admin Only)
+### 4. Update Warehouse (Protected, Admin Only)
 Updates an existing warehouse's details.
 - **Endpoint**: `PUT /api/warehouse/update/:id`
 - **Access**: Protected (Requires JWT + `SUPER_ADMIN` role)
@@ -143,11 +143,102 @@ Updates an existing warehouse's details.
   ```
 - **Response**: `200 OK` with updated data.
 
-### 4. Delete Warehouse (Protected, Admin Only)
+### 5. Delete Warehouse (Protected, Admin Only)
 Deletes an existing warehouse.
 - **Endpoint**: `DELETE /api/warehouse/delete/:id`
 - **Access**: Protected (Requires JWT + `SUPER_ADMIN` role)
 - **Response**: `200 OK` with deleted warehouse ID.
+
+---
+
+## Billing Endpoints
+Base Route: `/api/billing`
+
+### 1. Create Billing (Warehouse Manager Only)
+Managers create a new billing request for their warehouse.
+- **Endpoint**: `POST /api/billing/add`
+- **Access**: Protected (Requires JWT + `WAREHOUSE_MANAGER` role)
+- **Body**:
+  ```json
+  {
+    "inbound_time": "2023-10-01T10:00:00Z",
+    "outbound_time": "2023-10-01T15:00:00Z",
+    "depositor_name": "ABC Corp",
+    "depositor_gst": "GST123",
+    "commodity_id": 1,
+    "bill_no": "BILL-001",
+    "claim_month": 10,
+    "financial_year": "2023-24",
+    "taxable_amount": 1000.00
+  }
+  ```
+  *(Note: CGST, SGST (9% each), and Total Amount are calculated automatically)*
+- **Response**: `201 Created` with `billingId` and `versionId`.
+
+### 2. Edit Billing (Warehouse Manager Only)
+Managers can propose an edit to an existing bill (creating a new version).
+- **Endpoint**: `PUT /api/billing/:billingId`
+- **Access**: Protected (Requires JWT + `WAREHOUSE_MANAGER` role)
+- **Constraint**: Cannot edit if status is `APPROVED` or `PAID`.
+- **Response**: `200 OK` with `versionId`.
+
+### 3. Get Manager's Warehouse Billing (Warehouse Manager Only)
+Fetch billing history for the current manager's warehouse.
+- **Endpoint**: `GET /api/billing/my`
+- **Access**: Protected (Requires JWT + `WAREHOUSE_MANAGER` role)
+- **Response**: `200 OK` with list of bills including payment info if available.
+
+### 4. Get Billing Details (Both Roles)
+Fetch detailed information for a specific bill.
+- **Endpoint**: `GET /api/billing/:billingId`
+- **Access**: Protected (Requires valid JWT)
+- **Response**: `200 OK` with bill, version, and payment details.
+
+### 5. Get All Billing (Admin Only)
+Admin dashboard view for all warehouses.
+- **Endpoint**: `GET /api/billing`
+- **Access**: Protected (Requires JWT + `SUPER_ADMIN` role)
+- **Query Params**: `?district=...`, `?status=...`
+- **Response**: `200 OK` with list.
+
+### 6. Final Bill Approval (Admin Only)
+Final approval for the whole bill.
+- **Endpoint**: `PATCH /api/billing/approve/:billingId`
+- **Access**: Protected (Requires JWT + `SUPER_ADMIN` role)
+- **Response**: `200 OK`.
+
+### 7. Approve Edit (Admin Only)
+Admin approves a specific version of a bill.
+- **Endpoint**: `PATCH /api/billing/approve-edit/:billingId/:versionId`
+- **Access**: Protected (Requires JWT + `SUPER_ADMIN` role)
+- **Response**: `200 OK`.
+
+### 8. Reject Bill/Edit (Admin Only)
+- **Endpoint**: `PATCH /api/billing/reject/:billingId` (Reject whole bill)
+- **Endpoint**: `PATCH /api/billing/reject-edit/:billingId/:versionId` (Reject specific edit)
+- **Access**: Protected (Requires JWT + `SUPER_ADMIN` role)
+- **Response**: `200 OK`.
+
+### 9. Record Payment (Admin Only)
+Records payment details for an approved bill and marks it as `PAID`.
+- **Endpoint**: `POST /api/billing/payment/:billingId`
+- **Access**: Protected (Requires JWT + `SUPER_ADMIN` role)
+- **Body**:
+  ```json
+  {
+    "amount_passed": 1180.00,
+    "payment_mode": "NEFT",
+    "instrument_no": "INST-555",
+    "payment_date": "2023-10-15",
+    "advice_no": "ADV-999",
+    "advice_date": "2023-10-14",
+    "remarks": "Payment successful"
+  }
+  ```
+- **Response**: `200 OK`.
+
+
+
 
 ---
 
@@ -156,102 +247,54 @@ Base Route: `/api/commodity`
 
 ### 1. Add Commodity & Price (Protected, Admin Only)
 Upserts a commodity and records its price for a specific financial year.
-Endpoint: `POST /api/commodity/add`
-Access: Protected (Requires JWT + SUPER_ADMIN role)
-Body
-```json
-{
-  "commodityData": {
-    "name": "rice"
-  },
-  "priceData": {
-    "financial_year": "2023-24",
-    "price_per_unit": 40.00
-  }
-}
-```
-Response
-
-201 Created
-
-{
-  "message": "Commodity and Price recorded successfully",
-  "data": {
-    "commodity": {
-      "id": 1,
+- **Endpoint**: `POST /api/commodity/add`
+- **Access**: Protected (Requires JWT + `SUPER_ADMIN` role)
+- **Body**:
+  ```json
+  {
+    "commodityData": {
       "name": "rice"
     },
-    "price": {
-      "id": 3,
+    "priceData": {
       "financial_year": "2023-24",
-      "price_per_unit": 40
+      "price_per_unit": 40.00
     }
   }
-}
-2. Get All Commodities (Protected, Admin Only)
+  ```
+- **Response**: `201 Created` with commodity and price data.
 
+### 2. Get All Commodities (Protected, Admin Only)
 Fetch all active commodities along with their financial year prices.
+- **Endpoint**: `GET /api/commodity`
+- **Access**: Protected (Requires JWT + `SUPER_ADMIN` role)
+- **Response**: `200 OK` with list of commodities and prices.
 
-Endpoint: GET /api/commodity
-
-Access: Protected (Requires JWT + SUPER_ADMIN role)
-
-Response
-
-200 OK
-
-{
-  "data": [
-    {
-      "id": 1,
-      "name": "rice",
-      "is_active": true,
-      "financial_year": "2023-24",
-      "price_per_unit": 40,
-      "updated_at": "2026-03-16T10:10:10.000Z"
-    }
-  ]
-}
-3. Update Commodity or Price (Protected, Admin Only)
-
+### 3. Update Commodity or Price (Protected, Admin Only)
 Updates commodity name or price for a specific financial year.
-
-Endpoint: PUT /api/commodity/:id
-
-Access: Protected (Requires JWT + SUPER_ADMIN role)
-
-URL Params
-id = commodity_id
-Body
-{
-  "name": "basmati rice",
-  "financial_year": "2023-24",
-  "price_per_unit": 45
-}
-Response
-
-200 OK
-
-{
-  "message": "Commodity updated successfully",
-  "data": {
-    "commodityId": 1
+- **Endpoint**: `PUT /api/commodity/:id`
+- **Access**: Protected (Requires JWT + `SUPER_ADMIN` role)
+- **Body**:
+  ```json
+  {
+    "name": "basmati rice",
+    "financial_year": "2023-24",
+    "price_per_unit": 45
   }
-}
-4. Delete Commodity (Protected, Admin Only)
+  ```
+- **Response**: `200 OK`.
 
-Soft deletes a commodity by marking is_active = false.
+### 4. Delete Commodity (Protected, Admin Only)
+Soft deletes a commodity by marking `is_active = false`.
+- **Endpoint**: `DELETE /api/commodity/:id`
+- **Access**: Protected (Requires JWT + `SUPER_ADMIN` role)
+- **Response**: `200 OK`.
 
-Endpoint: DELETE /api/commodity/:id
 
-Access: Protected (Requires JWT + SUPER_ADMIN role)
 
-URL Params
-id = commodity_id
-Response
 
-200 OK
 
-{
-  "message": "Commodity deleted successfully"
-}
+
+
+
+
+
