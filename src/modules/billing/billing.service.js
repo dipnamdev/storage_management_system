@@ -18,8 +18,8 @@ const createBilling = async (warehouseId, userId, data) => {
       [
         warehouseId,
         userId,
-        data.inbound_time,
-        data.outbound_time
+        data.inbound_time || null,
+        data.outbound_time || null
       ]
     );
 
@@ -174,10 +174,12 @@ const editBilling = async (billingId, userId, data) => {
     await client.query(
       `
       UPDATE warehouse_billing
-      SET status='PENDING_APPROVAL'
-      WHERE id=$1
+      SET status='PENDING_APPROVAL',
+          inbound_time=$1,
+          outbound_time=$2
+      WHERE id=$3
       `,
-      [billingId]
+      [data.inbound_time || null, data.outbound_time || null, billingId]
     );
 
     await client.query("COMMIT");

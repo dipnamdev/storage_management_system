@@ -4,6 +4,7 @@ const getAllCommodity = async () => {
   const query = `
     SELECT 
         c.id as commodity_id,
+        c.id,
         c.name,
         c.is_active,
         cp.id as price_id,
